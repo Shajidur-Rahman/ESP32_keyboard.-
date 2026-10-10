@@ -53,6 +53,12 @@ static void forward_task(void *arg)
                     ble_hid_send_mouse(pkt.data);
                 }
                 break;
+            case BRIDGE_PKT_CONSUMER:
+                if (pkt.len >= 2) {
+                    uint16_t usage = pkt.data[0] | ((uint16_t)pkt.data[1] << 8);
+                    ble_hid_send_consumer(usage);
+                }
+                break;
             default:
                 break;
             }

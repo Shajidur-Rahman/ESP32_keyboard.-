@@ -125,6 +125,20 @@ static const uint8_t hid_report_map[] = {
     0x81, 0x06,  /*     Input (Data, Variable, Relative) */
     0xC0,        /*   End Collection (Physical) */
     0xC0,        /* End Collection */
+
+    /* ── Consumer Control (Report ID 3) ── */
+    0x05, 0x0C,        /* Usage Page (Consumer) */
+    0x09, 0x01,        /* Usage (Consumer Control) */
+    0xA1, 0x01,        /* Collection (Application) */
+    0x85, 0x03,        /*   Report ID (3) */
+    0x15, 0x00,        /*   Logical Minimum (0) */
+    0x26, 0xFF, 0x03,  /*   Logical Maximum (1023) */
+    0x19, 0x00,        /*   Usage Minimum (0) */
+    0x2A, 0xFF, 0x03,  /*   Usage Maximum (1023) */
+    0x75, 0x10,        /*   Report Size (16) */
+    0x95, 0x01,        /*   Report Count (1) */
+    0x81, 0x00,        /*   Input (Data, Array, Absolute) */
+    0xC0,              /* End Collection */
 };
 
 /* ─── HID Information characteristic value ───────────────────────── */
@@ -137,10 +151,13 @@ static uint8_t  g_hid_ctrl_pt         = 0x00;
 static uint8_t  g_battery_level       = 100;
 static uint8_t  g_kbd_report[8]       = {0};
 static uint8_t  g_mouse_report[4]     = {0};
+static uint8_t  g_consumer_report[2]  = {0};
+static volatile uint16_t g_consumer_report_handle = 0;
 
 /* Report Reference descriptors (ID, type) */
-static const uint8_t kbd_report_ref[]   = { 0x01, 0x01 }; /* ID=1, Input */
-static const uint8_t mouse_report_ref[] = { 0x02, 0x01 }; /* ID=2, Input */
+static const uint8_t kbd_report_ref[]      = { 0x01, 0x01 }; /* ID=1, Input */
+static const uint8_t mouse_report_ref[]    = { 0x02, 0x01 }; /* ID=2, Input */
+static const uint8_t consumer_report_ref[] = { 0x03, 0x01 }; /* ID=3, Input */
 
 /* ─── GATT read/write handlers ───────────────────────────────────── */
 
@@ -216,6 +233,23 @@ static int gatt_mouse_report_ref_access(uint16_t conn_handle, uint16_t attr_hand
            ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+static int gatt_consumer_report_access(uint16_t conn_handle, uint16_t attr_handle,
+                                       struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        return os_mbuf_append(ctxt->om, g_consumer_report, sizeof(g_consumer_report)) == 0
+               ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return 0;
+}
+
+static int gatt_consumer_report_ref_access(uint16_t conn_handle, uint16_t attr_handle,
+                                           struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    return os_mbuf_append(ctxt->om, consumer_report_ref, sizeof(consumer_report_ref)) == 0
+           ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
 static int gatt_battery_access(uint16_t conn_handle, uint16_t attr_handle,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
@@ -277,6 +311,22 @@ static struct ble_gatt_chr_def hid_chars[] = {
                 /* Report Reference */
                 .uuid      = BLE_UUID16_DECLARE(0x2908),
                 .access_cb = gatt_mouse_report_ref_access,
+                .att_flags = BLE_ATT_F_READ,
+            },
+            {0},
+        },
+    },
+    /* Consumer Control Input Report */
+    {
+        .uuid         = BLE_UUID16_DECLARE(0x2A4D),
+        .access_cb    = gatt_consumer_report_access,
+        .val_handle   = (uint16_t *)&g_consumer_report_handle,
+        .flags        = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .descriptors  = (struct ble_gatt_dsc_def[]) {
+            {
+                /* Report Reference */
+                .uuid      = BLE_UUID16_DECLARE(0x2908),
+                .access_cb = gatt_consumer_report_ref_access,
                 .att_flags = BLE_ATT_F_READ,
             },
             {0},
@@ -609,6 +659,29 @@ esp_err_t ble_hid_send_mouse(const uint8_t *report)
     }
 
     int rc = ble_gatts_notify_custom(g_conn_handle, g_mouse_report_handle, om);
+    return (rc == 0) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t ble_hid_send_consumer(uint16_t usage)
+{
+    if (g_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    g_consumer_report[0] = (uint8_t)(usage & 0xFF);
+    g_consumer_report[1] = (uint8_t)((usage >> 8) & 0xFF);
+
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(g_consumer_report, sizeof(g_consumer_report));
+    if (!om) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    int rc = ble_gatts_notify_custom(g_conn_handle, g_consumer_report_handle, om);
+    if (rc == 0 && usage != 0) {
+        ESP_LOGI(TAG, "--> Sent Consumer usage 0x%04X to tablet via BLE!", usage);
+    } else if (rc != 0) {
+        ESP_LOGW(TAG, "ble_gatts_notify_custom consumer failed: %d", rc);
+    }
     return (rc == 0) ? ESP_OK : ESP_FAIL;
 }
 

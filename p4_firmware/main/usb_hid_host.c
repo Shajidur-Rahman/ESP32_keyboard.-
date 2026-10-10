@@ -77,15 +77,57 @@ static SemaphoreHandle_t g_devs_mutex     = NULL;
 
 /* ─── Report parsers ─────────────────────────────────────────────── */
 
+static uint16_t s_active_consumer_usage = 0;
+
 static void push_kbd(const uint8_t *data, size_t len)
 {
     if (len < KBD_REPORT_LEN) return;
+
+    uint8_t mod = data[0];
+    uint8_t kbd_data[KBD_REPORT_LEN];
+    memcpy(kbd_data, data, KBD_REPORT_LEN);
+
+    uint16_t new_consumer_usage = 0;
+
+    /* Intercept plain F5 (0x3E) and F6 (0x3F) when no modifiers held */
+    if (mod == 0) {
+        for (int i = 2; i < KBD_REPORT_LEN; i++) {
+            if (kbd_data[i] == 0x3E) { /* F5 key */
+                new_consumer_usage = 0x00CD; /* HID Consumer: Play / Pause */
+                kbd_data[i] = 0;
+            } else if (kbd_data[i] == 0x3F) { /* F6 key */
+                new_consumer_usage = 0x0221; /* HID Consumer: AC Search / Gemini */
+                kbd_data[i] = 0;
+            }
+        }
+    }
+
+    /* Send Consumer Control report when F5/F6 is pressed or released */
+    if (new_consumer_usage != s_active_consumer_usage) {
+        s_active_consumer_usage = new_consumer_usage;
+        bridge_pkt_t c_pkt = {
+            .magic = BRIDGE_MAGIC,
+            .type = BRIDGE_PKT_CONSUMER,
+            .len = 2,
+            .reserved = 0,
+        };
+        c_pkt.data[0] = (uint8_t)(new_consumer_usage & 0xFF);
+        c_pkt.data[1] = (uint8_t)((new_consumer_usage >> 8) & 0xFF);
+        xQueueSend(g_report_queue, &c_pkt, 0);
+
+        if (new_consumer_usage == 0x00CD) {
+            ESP_LOGI(TAG, ">>> [F5 Pressed] Dispatched MEDIA PLAY/PAUSE to tablet!");
+        } else if (new_consumer_usage == 0x0221) {
+            ESP_LOGI(TAG, ">>> [F6 Pressed] Dispatched SEARCH / GEMINI to tablet!");
+        }
+    }
+
     bridge_pkt_t pkt = {
         .magic = BRIDGE_MAGIC, .type = BRIDGE_PKT_KEYBOARD,
         .len = KBD_REPORT_LEN, .reserved = 0
     };
-    memcpy(pkt.data, data, KBD_REPORT_LEN);
-    if (pkt.data[2] != 0) {
+    memcpy(pkt.data, kbd_data, KBD_REPORT_LEN);
+    if (pkt.data[0] != 0 || pkt.data[2] != 0) {
         ESP_LOGI(TAG, "USB Keyboard Event: key=0x%02X, mod=0x%02X", pkt.data[2], pkt.data[0]);
     }
     xQueueSend(g_report_queue, &pkt, 0);

@@ -15,6 +15,7 @@
 #define BRIDGE_MAGIC          0xAB
 #define BRIDGE_PKT_KEYBOARD   0x01
 #define BRIDGE_PKT_MOUSE      0x02
+#define BRIDGE_PKT_CONSUMER   0x03
 
 /* Keyboard boot-protocol report: modifier(1) + reserved(1) + keycodes(6) = 8 bytes */
 #define KBD_REPORT_LEN        8

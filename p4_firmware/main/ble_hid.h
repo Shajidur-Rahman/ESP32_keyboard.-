@@ -37,6 +37,14 @@ esp_err_t ble_hid_send_keyboard(const uint8_t *report);
 esp_err_t ble_hid_send_mouse(const uint8_t *report);
 
 /**
+ * @brief Send a Consumer Control HID report (16-bit usage) over BLE notification.
+ *
+ * @param usage  Consumer usage code (e.g. 0x00CD for Play/Pause, 0x0221 for Search).
+ * @return ESP_OK on success, ESP_ERR_INVALID_STATE if not connected.
+ */
+esp_err_t ble_hid_send_consumer(uint16_t usage);
+
+/**
  * @brief Returns true if a BLE central (PC) is currently connected.
  */
 bool ble_hid_is_connected(void);
