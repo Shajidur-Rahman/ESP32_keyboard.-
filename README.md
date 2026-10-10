@@ -1,143 +1,120 @@
-# USB-to-BLE Bridge — Waveshare ESP32-P4 + ESP32-C6
+# ESP32-P4 + ESP32-C6 USB-to-Wireless (Bluetooth & Wi-Fi) HID Bridge
 
-Stream USB keyboard/mouse inputs wirelessly over Bluetooth LE to a PC, with near-zero latency.
+Connect any standard wired USB Type-A keyboard or mouse to the **Waveshare ESP32-P4** board and stream inputs wirelessly with ultra-low latency:
+1. **Bluetooth LE HID (HOGP)** directly to tablets (e.g. Android / Redmi Pad SE), phones, and PCs — with **zero physical wires**.
+2. **Wi-Fi 6 (UDP broadcast)** for <1 ms latency streaming to laptops/PCs running `laptop_receiver.py`.
 
 ---
 
-## Architecture
+## Hardware Configuration & Jumper Settings
+
+### 1. Crucial USB OTG Jumper (`H3`)
+The Waveshare ESP32-P4 board contains an onboard high-speed USB multiplexer switch (`U15` FSUSB42) controlling data lines to the 4 USB Type-A ports:
 
 ```
-USB Hub / Keyboard / Mouse
-          │ USB 2.0 HS (Host)
-          ▼
-   ┌─────────────────────────────────────────┐
-   │          ESP32-P4 (p4_firmware)          │
-   │                                          │
-   │  USB Host HID task (Core 0)              │
-   │    • enumerate kbd + mouse               │
-   │    • parse boot-protocol reports         │
-   │         │                                │
-   │         ▼  bridge_pkt_t (queue depth=32) │
-   │  SDIO Master task (Core 1)               │
-   │    • SDMMC 4-bit @ 20 MHz               │
-   │    • ESSL send_packet()                  │
-   └──────────────┬──────────────────────────┘
-                  │ Internal SDIO bus (4-bit)
-                  ▼
-   ┌─────────────────────────────────────────┐
-   │          ESP32-C6 (c6_firmware)          │
-   │                                          │
-   │  SDIO Slave task (pri=7)                 │
-   │    • receive bridge_pkt_t                │
-   │         │                                │
-   │         ▼  bridge_pkt_t (queue depth=32) │
-   │  BLE Forward task (pri=5)                │
-   │    • NimBLE HOGP notify                  │
-   │    • Keyboard Report ID 1                │
-   │    • Mouse    Report ID 2                │
-   └──────────────┬──────────────────────────┘
-                  │ BLE 5.3 (7.5 ms interval)
-                  ▼
-        PC / Laptop (BLE HID host)
+        ┌──────────────┐
+        │  HOST   [••] │   <-- Yellow jumper MUST bridge the HOST pins (Left)
+        │  DEVICE  [ ] │   <-- Exposed pin on right
+        └──────────────┘
 ```
 
----
+* **Must be in `HOST` mode:** Ensure the yellow jumper bridges the pins towards the word **`HOST`**.
+* *If the jumper is in `DEVICE` mode, 5V power will be present, but USB data lines ($D+/D-$) are physically disconnected from the 4 Type-A ports!*
 
-## SDIO Pin Mapping (P4 → C6)
-
-| Signal | P4 GPIO | C6 GPIO (fixed) |
-|--------|---------|-----------------|
-| CLK    | 18      | 19              |
-| CMD    | 19      | 18              |
-| D0     | 14      | 20              |
-| D1     | 15      | 21              |
-| D2     | 16      | 22              |
-| D3     | 17      | 23              |
-
-> Adjust `SDIO_*_GPIO` defines in `p4_firmware/main/sdio_master.c` if your Waveshare variant routes differently.
+### 2. Cable Connections
+* **Keyboard / Mouse:** Plug into any of the 4 USB Type-A ports.
+* **Flashing / Debug Port:** Connect USB-C cable to the port labeled **`PWR USB TO UART`** on the bottom of the board.
 
 ---
 
-## Build & Flash
+## How to Flash Without Errors
 
-### Prerequisites
-
+### 1. Prerequisites
+Activate ESP-IDF (v5.3+ or v5.5 recommended):
 ```bash
-source /home/shajidur-rahman/esp/esp-idf/export.sh
+source $HOME/esp/esp-idf/export.sh
 ```
 
-### ESP32-P4 Firmware
+Ensure your user has access to serial ports (`/dev/ttyACM0` or `/dev/ttyUSB0`):
+```bash
+sudo usermod -a -G dialout $USER
+```
 
+---
+
+### 2. Building the Firmware
+Navigate to the P4 firmware directory and compile:
 ```bash
 cd p4_firmware
 idf.py build
-# Flash using esptool (early silicon workaround):
-python -m esptool --chip esp32p4 -b 460800 --before default_reset --after hard_reset \
-  write_flash \
+```
+
+---
+
+### 3. Flashing Using `esptool` (Foolproof Method)
+
+Due to early silicon USB-UART auto-reset timing, flashing directly with `python -m esptool` is the most reliable and error-free method:
+
+#### Complete Initial Flash (Bootloader + Partition Table + App):
+```bash
+python -m esptool --chip esp32p4 -p /dev/ttyACM0 -b 460800 \
+  --before default_reset --after hard_reset write_flash \
+  --flash_mode dio --flash_size 16MB --flash_freq 40m \
+  0x2000  build/bootloader/bootloader.bin \
   0x8000  build/partition_table/partition-table.bin \
   0x10000 build/usb_bt_bridge_p4.bin
 ```
 
-### ESP32-C6 Firmware
-
+#### Fast App-Only Update (After code edits):
 ```bash
-cd c6_firmware
-idf.py -p /dev/ttyACM0 build flash monitor
+python -m esptool --chip esp32p4 -p /dev/ttyACM0 -b 460800 \
+  --before default_reset --after hard_reset write_flash \
+  0x10000 build/usb_bt_bridge_p4.bin
 ```
 
 ---
 
-## Packet Protocol
+### 4. Resolving "Waiting for Download" / Boot Stuck Error
 
-`bridge_protocol.h` defines a 12-byte fixed-size packet:
-
-```
-Offset  Field      Value
-──────────────────────────────────────────
-  0     magic      0xAB
-  1     type       0x01=Keyboard  0x02=Mouse
-  2     len        payload length (8 or 4)
-  3     reserved   0x00
- 4–11   data       raw HID boot-protocol report
-```
+If the ESP32-P4 gets stuck in ROM download mode after flashing (`rst:0x1, boot:0x307 (DOWNLOAD)`):
+1. **Hardware Reset:** Press the **RST** button on the board once.
+2. **Software Reset via Python:**
+   ```bash
+   python3 -c "import serial, time; s = serial.Serial('/dev/ttyACM0', 115200); s.dtr = False; s.rts = True; time.sleep(0.1); s.rts = False; s.close()"
+   ```
+The chip will immediately boot into normal SPI Flash execution (`boot:0x30f (SPI_FAST_FLASH_BOOT)`).
 
 ---
 
-## BLE HID Reports
+## Connecting to Your Tablet / PC
 
-| Report | ID | Format                          |
-|--------|----|---------------------------------|
-| Keyboard | 1 | modifier(1) + rsvd(1) + keys(6) |
-| Mouse    | 2 | buttons(1) + X(1) + Y(1) + wheel(1) |
+1. **Bluetooth Pairing:**
+   - On your tablet/PC, open **Settings → Bluetooth**.
+   - Select **`ESP-HID-Bridge`**.
+   - Tap **Pair / Connect**. No PIN or passkey is needed ("Just Works" security).
+   - Once connected, both keyboard and mouse inputs are active immediately.
 
-Connection parameters: `itvl_min=6` (7.5 ms), `itvl_max=12` (15 ms), latency=0.
-
-Pairing: Just Works (no passkey). Bonding is enabled so the host reconnects automatically.
+2. **Monitoring Logs in Real-Time:**
+   ```bash
+   idf.py -p /dev/ttyACM0 monitor
+   ```
+   You will see:
+   ```text
+   I usb_hid: Found HID Keyboard at iface=0 (subclass=1, proto=1)
+   I usb_hid: Found EP 0x81 (MPS=8) for iface 0
+   I ble_hid: BLE connected, handle=0
+   I usb_hid: USB Keyboard Event: key=0x04, mod=0x00
+   I ble_hid: --> Sent key scancode 0x04 to tablet via BLE!
+   ```
 
 ---
 
-## Project Structure
+## Wi-Fi UDP Streaming (Optional PC Receiver)
 
-```
-usb_bt_bridge/
-├── p4_firmware/
-│   ├── CMakeLists.txt
-│   ├── sdkconfig.defaults
-│   ├── partitions.csv
-│   ├── components/
-│   │   └── esp_serial_slave_link/   ← ESSL (copied from IDF test_apps)
-│   └── main/
-│       ├── main.c
-│       ├── bridge_protocol.h
-│       ├── usb_hid_host.[ch]
-│       └── sdio_master.[ch]
-└── c6_firmware/
-    ├── CMakeLists.txt
-    ├── sdkconfig.defaults
-    ├── partitions.csv
-    └── main/
-        ├── main.c
-        ├── bridge_protocol.h
-        ├── sdio_slave_task.[ch]
-        └── ble_hid.[ch]
-```
+For PC/laptop usage over local Wi-Fi with <1 ms latency:
+1. Configure Wi-Fi SSID and password in `p4_firmware/main/wifi_stream.c`.
+2. On your laptop, run:
+   ```bash
+   python3 laptop_receiver.py
+   ```
+3. Keystrokes and mouse movements will be injected directly into the operating system at hardware-like speeds.
