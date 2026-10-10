@@ -1,0 +1,23 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "usb_hid_host.c"
+        "ble_hid.c"
+        "wifi_stream.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        usb
+        driver
+        freertos
+        log
+        esp_timer
+        bt
+        nvs_flash
+        esp_wifi
+        esp_event
+        esp_netif
+        lwip
+        espressif__esp_hosted
+        espressif__esp_wifi_remote
+)

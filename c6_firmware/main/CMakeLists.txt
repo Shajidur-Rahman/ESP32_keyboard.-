@@ -1,0 +1,16 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "sdio_slave_task.c"
+        "ble_hid.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        driver
+        freertos
+        log
+        bt
+        nvs_flash
+        esp_timer
+        sdmmc
+)

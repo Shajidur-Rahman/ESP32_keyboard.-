@@ -1,0 +1,49 @@
+# =============================================================================
+# sdkconfig.defaults for ESP32-C6 BLE HID Device firmware
+# =============================================================================
+
+# --- Target ---
+CONFIG_IDF_TARGET="esp32c6"
+
+# --- Flash ---
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# --- Partition Table ---
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# --- FreeRTOS ---
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_UNICORE=y
+
+# --- Bluetooth (NimBLE) ---
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_SVC_GAP_DEVICE_NAME="ESP-HID-Bridge"
+CONFIG_BT_NIMBLE_LOG_LEVEL_NONE=n
+CONFIG_BT_NIMBLE_LOG_LEVEL_ERROR=y
+# Aggressive connection intervals for low latency
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=64
+
+# --- Disable Wi-Fi (BLE only mode) ---
+CONFIG_ESP_WIFI_ENABLED=n
+
+# --- SDIO Slave ---
+CONFIG_SDIO_SLAVE_ISR_IN_IRAM=y
+
+# --- Logging ---
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# --- Stack Sizes ---
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+
+# --- Watchdog ---
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
