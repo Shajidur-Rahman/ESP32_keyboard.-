@@ -1,63 +1,90 @@
-# ESP32-P4 + ESP32-C6 USB-to-Wireless (Bluetooth & Wi-Fi) HID Bridge
+# ⌨️ ESP32-P4 Wireless Keyboard & Mouse Bridge
 
-Connect any standard wired USB Type-A keyboard or mouse to the **Waveshare ESP32-P4** board and stream inputs wirelessly with ultra-low latency:
-1. **Bluetooth LE HID (HOGP)** directly to tablets (e.g. Android / Redmi Pad SE), phones, and PCs — with **zero physical wires**.
-2. **Wi-Fi 6 (UDP broadcast)** for <1 ms latency streaming to laptops/PCs running `laptop_receiver.py`.
+> Turn any wired USB Type-A keyboard and mouse into a high-performance, low-latency wireless Bluetooth & Wi-Fi device using the **Waveshare ESP32-P4** board.
+
+Designed specifically for tablets (**Redmi Pad SE / Android**), phones, and PCs without requiring any wires to your device.
 
 ---
 
-## Hardware Configuration & Jumper Settings
+## ✨ Features
 
-### 1. Crucial USB OTG Jumper (`H3`)
-The Waveshare ESP32-P4 board contains an onboard high-speed USB multiplexer switch (`U15` FSUSB42) controlling data lines to the 4 USB Type-A ports:
+- 📶 **100% Wireless BLE HID (HOGP):** Pairs directly as `ESP-HID-Bridge` (composite Keyboard + Mouse).
+- ⚡ **Zero-Lag Input:** Responsive HID polling with instant event propagation.
+- ⏯️ **Dedicated Media & AI Shortcuts:**
+  - **`F5`** ➡️ **Global Media Play / Pause** (instantly controls videos in Telegram, Chrome, YouTube, Spotify).
+  - **`F6`** ➡️ **Gemini / Circle to Search** (launches Google / Gemini screen search overlay).
+  - Normal keys and modifier combos (`Ctrl+F5`, `Shift+F5`) remain untouched for normal typing.
+- 🚀 **Wi-Fi 6 UDP Streaming:** Optional ultra-low latency (<1 ms) streaming to laptops via Python receiver.
+- 🔋 **Ultra-Low Power:** Adds `< 1%` daily battery drain on tablets and can run 35–40+ hours on a standard 10,000 mAh power bank.
+
+---
+
+## 🛠️ Hardware Setup
+
+### 1. Crucial OTG Jumper (`H3`)
+The board uses an onboard high-speed USB multiplexer (`U15` FSUSB42) to route the data lines ($D+/D-$) to either the USB-C OTG port or the 4 USB Type-A ports.
+
+Set the yellow jumper header **`H3`** to **`HOST`**:
 
 ```
-        ┌──────────────┐
-        │  HOST   [••] │   <-- Yellow jumper MUST bridge the HOST pins (Left)
-        │  DEVICE  [ ] │   <-- Exposed pin on right
-        └──────────────┘
+        ┌───────────────────────────────┐
+        │   HOST      [ • • ]   (Left)  │  <-- Jumper MUST bridge these 2 pins
+        │   DEVICE      [ • ]   (Right) │  <-- Leave rightmost pin exposed
+        └───────────────────────────────┘
 ```
-
-* **Must be in `HOST` mode:** Ensure the yellow jumper bridges the pins towards the word **`HOST`**.
-* *If the jumper is in `DEVICE` mode, 5V power will be present, but USB data lines ($D+/D-$) are physically disconnected from the 4 Type-A ports!*
+*(If left on `DEVICE`, the ports will supply 5V power but USB data lines will remain physically disconnected).*
 
 ### 2. Cable Connections
-* **Keyboard / Mouse:** Plug into any of the 4 USB Type-A ports.
-* **Flashing / Debug Port:** Connect USB-C cable to the port labeled **`PWR USB TO UART`** on the bottom of the board.
+- **Keyboard / Mouse:** Plug into any of the 4 USB Type-A sockets.
+- **Computer / Power:** Connect your USB-C cable to the port labeled **`PWR USB TO UART`** on the bottom of the board.
 
 ---
 
-## How to Flash Without Errors
+## ⚡ One-Command Flash (Safe for Early Silicon Revisions)
+
+Early silicon revisions (e.g. ESP32-P4 v1.0) can enter a bootloader loop (`boot:0x307 waiting for download`) if reset signals are mistimed. We have provided an automated, safe one-click flash script:
+
+```bash
+./flash_p4.sh
+```
+
+*(Optional: specify your port if not on `/dev/ttyACM0`)*:
+```bash
+./flash_p4.sh /dev/ttyACM0
+```
+
+### What this script does automatically:
+1. Sources the ESP-IDF environment cleanly.
+2. Compiles the firmware with custom descriptor parsers and USB Host Hub support.
+3. Flashes the bootloader, partition table, and app with the safe `460800` baud rate and `dio` flash parameters.
+4. Pulses the hardware reset line to cleanly transition from ROM download mode directly into application execution (`boot:0x30f SPI_FAST_FLASH_BOOT`).
+
+---
+
+## 📦 Manual Installation (Step-by-Step)
+
+If you prefer building and flashing manually:
 
 ### 1. Prerequisites
-Activate ESP-IDF (v5.3+ or v5.5 recommended):
+Install and activate ESP-IDF (v5.3+ or v5.5):
 ```bash
 source $HOME/esp/esp-idf/export.sh
 ```
 
-Ensure your user has access to serial ports (`/dev/ttyACM0` or `/dev/ttyUSB0`):
+Ensure your user account has serial port permissions:
 ```bash
 sudo usermod -a -G dialout $USER
 ```
 
----
-
-### 2. Building the Firmware
-Navigate to the P4 firmware directory and compile:
+### 2. Build the Project
 ```bash
 cd p4_firmware
 idf.py build
 ```
 
----
-
-### 3. Flashing Using `esptool` (Foolproof Method)
-
-Due to early silicon USB-UART auto-reset timing, flashing directly with `python -m esptool` is the most reliable and error-free method:
-
-#### Complete Initial Flash (Bootloader + Partition Table + App):
+### 3. Flash to ESP32-P4
 ```bash
-python -m esptool --chip esp32p4 -p /dev/ttyACM0 -b 460800 \
+python3 -m esptool --chip esp32p4 -p /dev/ttyACM0 -b 460800 \
   --before default_reset --after hard_reset write_flash \
   --flash_mode dio --flash_size 16MB --flash_freq 40m \
   0x2000  build/bootloader/bootloader.bin \
@@ -65,56 +92,34 @@ python -m esptool --chip esp32p4 -p /dev/ttyACM0 -b 460800 \
   0x10000 build/usb_bt_bridge_p4.bin
 ```
 
-#### Fast App-Only Update (After code edits):
+### 4. If Board Stays in "Waiting for Download"
+Simply press the physical **RST** button on the board, or run:
 ```bash
-python -m esptool --chip esp32p4 -p /dev/ttyACM0 -b 460800 \
-  --before default_reset --after hard_reset write_flash \
-  0x10000 build/usb_bt_bridge_p4.bin
+python3 -c "import serial, time; s = serial.Serial('/dev/ttyACM0', 115200); s.dtr = False; s.rts = True; time.sleep(0.1); s.rts = False; s.close()"
 ```
 
 ---
 
-### 4. Resolving "Waiting for Download" / Boot Stuck Error
+## 📱 Connecting to Redmi Pad SE / Android / PC
 
-If the ESP32-P4 gets stuck in ROM download mode after flashing (`rst:0x1, boot:0x307 (DOWNLOAD)`):
-1. **Hardware Reset:** Press the **RST** button on the board once.
-2. **Software Reset via Python:**
-   ```bash
-   python3 -c "import serial, time; s = serial.Serial('/dev/ttyACM0', 115200); s.dtr = False; s.rts = True; time.sleep(0.1); s.rts = False; s.close()"
-   ```
-The chip will immediately boot into normal SPI Flash execution (`boot:0x30f (SPI_FAST_FLASH_BOOT)`).
+1. Open **Settings → Bluetooth** on your tablet.
+2. Select **`ESP-HID-Bridge`**.
+3. Tap **Pair / Connect** (uses standard "Just Works" encryption, no PIN required).
+4. Start typing on your USB keyboard!
 
----
-
-## Connecting to Your Tablet / PC
-
-1. **Bluetooth Pairing:**
-   - On your tablet/PC, open **Settings → Bluetooth**.
-   - Select **`ESP-HID-Bridge`**.
-   - Tap **Pair / Connect**. No PIN or passkey is needed ("Just Works" security).
-   - Once connected, both keyboard and mouse inputs are active immediately.
-
-2. **Monitoring Logs in Real-Time:**
-   ```bash
-   idf.py -p /dev/ttyACM0 monitor
-   ```
-   You will see:
-   ```text
-   I usb_hid: Found HID Keyboard at iface=0 (subclass=1, proto=1)
-   I usb_hid: Found EP 0x81 (MPS=8) for iface 0
-   I ble_hid: BLE connected, handle=0
-   I usb_hid: USB Keyboard Event: key=0x04, mod=0x00
-   I ble_hid: --> Sent key scancode 0x04 to tablet via BLE!
-   ```
+### Real-Time Serial Monitor:
+To inspect keyboard events and connection states live:
+```bash
+idf.py -p /dev/ttyACM0 monitor
+```
 
 ---
 
-## Wi-Fi UDP Streaming (Optional PC Receiver)
+## 💻 Optional: Laptop UDP Streaming
 
-For PC/laptop usage over local Wi-Fi with <1 ms latency:
-1. Configure Wi-Fi SSID and password in `p4_firmware/main/wifi_stream.c`.
-2. On your laptop, run:
+To stream inputs to a Linux/Windows/Mac PC over local Wi-Fi:
+1. Edit Wi-Fi credentials in `p4_firmware/main/wifi_stream.c`.
+2. Run the receiver on your laptop:
    ```bash
    python3 laptop_receiver.py
    ```
-3. Keystrokes and mouse movements will be injected directly into the operating system at hardware-like speeds.
